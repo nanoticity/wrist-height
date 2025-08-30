@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Piano Wrist Monitor</title>
+    <style>
+        #video {
+            display: block;
+            margin: 20px auto;
+            border: 2px solid #ccc;
+            background: #f0f0f0;
+        }
+        .error {
+            color: red;
+            text-align: center;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>Piano Wrist Monitor (Side View)</h1>
+    <p>Click on the video where the top of your keyboard is to calibrate.</p>
+    <img id="video" src="/video_feed" width="640" height="480" onerror="handleError()">
+    <p id="error-message" class="error">Video feed not loading. Please check your camera connection.</p>
+
+    <script>
+        const video = document.getElementById('video');
+        const errorMessage = document.getElementById('error-message');
+
+        function handleError() {
+            errorMessage.style.display = 'block';
+            video.style.display = 'none';
+        }
+
+        video.addEventListener('load', function() {
+            errorMessage.style.display = 'none';
+            video.style.display = 'block';
+        });
+
+        video.addEventListener('click', function(e) {
+            const rect = video.getBoundingClientRect();
+            const y = e.clientY - rect.top;
+            fetch(`/calibrate/${Math.floor(y)}`);
+            alert('Keyboard calibrated at y=' + Math.floor(y));
+        });
+    </script>
+</body>
+</html>
