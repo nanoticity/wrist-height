@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Piano Wrist Monitor - MediaPipe TS</title>
+  <style>
+    body { text-align: center; font-family: sans-serif; }
+    canvas { border: 2px solid #ccc; margin-top: 20px; }
+    #status { margin-top: 10px; font-weight: bold; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3/drawing_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/hands.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5/pose.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3/camera_utils.js" crossorigin="anonymous"></script>
+  <script type="module" src="dist/wristMonitor.js"></script>
+</head>
+<body>
+  <h1>Piano Wrist Monitor</h1>
+  <p>Monitoring wrist angle. Keep your wrist above 5 degrees. Only use this on your right hand</p>
+  <canvas id="canvas" width="640" height="480"></canvas>
+  <p id="status">Initializing...</p>
+</body>
+</html>
