@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Piano Wrist Monitor - MediaPipe JS</title>
+  <style>
+    body { text-align: center; font-family: sans-serif; }
+    canvas { border: 2px solid #ccc; margin-top: 20px; }
+    #status { margin-top: 10px; font-weight: bold; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3/drawing_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/hands.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5/pose.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3/camera_utils.js" crossorigin="anonymous"></script>
+</head>
+<body>
+  <h1>Piano Wrist Monitor (MediaPipe JS)</h1>
+  <p>Monitoring wrist angle. Keep your wrist above 5 degrees.</p>
+  <canvas id="canvas" width="640" height="480"></canvas>
+  <p id="status">Initializing...</p>
+
+  <script>
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const status = document.getElementById("status");
+
+    let handLandmarks = null;
+    let poseLandmarks = null;
+    let wristTooHighStart = null;
+    let lastBeepTime = null;
+    const ALERT_DELAY = 2000; // 2 seconds in milliseconds
+    const BEEP_INTERVAL = 2000; // Time between beeps
+
+    // Setup audio context and beep function
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    function playBeep() {
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+
+        oscillator.type = 'sine';
+        oscillator.frequency.value = 440; // A4 note
+        gainNode.gain.value = 0.1; // Lower volume
+
+        oscillator.start();
+        setTimeout(() => oscillator.stop(), 200); // Short beep
+    }
+
+    // Setup webcam
+    const video = document.createElement("video");
+    video.width = 640;
+    video.height = 480;
+    video.autoplay = true;
+
+    // MediaPipe Hands
+    let hands;
+    try {
+      hands = new window.Hands({locateFile: (file) => {
+        return `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/${file}`;
+      }});
+      hands.setOptions({
+        maxNumHands: 1,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.7,
+        minTrackingConfidence: 0.7
+      });
+    } catch (error) {
+      console.error('Error initializing MediaPipe Hands:', error);
+      status.innerText = 'Error initializing hand tracking';
+    }
+
+    // MediaPipe Pose
+    let pose;
+    try {
+      pose = new window.Pose({locateFile: (file) => {
+        return `https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5/${file}`;
+      }});
+      pose.setOptions({
+        modelComplexity: 1,
+        smoothLandmarks: true,
+        minDetectionConfidence: 0.7,
+        minTrackingConfidence: 0.7
+      });
+    } catch (error) {
+      console.error('Error initializing MediaPipe Pose:', error);
+      status.innerText = 'Error initializing pose tracking';
+    }
+
+    // Wrist angle calculation
+    function angleBetween(v1, v2) {
+      const dot = v1.x*v2.x + v1.y*v2.y;
+      const mag1 = Math.hypot(v1.x, v1.y);
+      const mag2 = Math.hypot(v2.x, v2.y);
+      let cosA = dot / (mag1*mag2);
+      cosA = Math.max(-1, Math.min(1, cosA));
+      const angle = Math.acos(cosA) * 180/Math.PI;
+      const cross = v1.x*v2.y - v1.y*v2.x;
+      return cross < 0 ? -angle : angle;
+    }
+
+    function drawLandmarks() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      if (poseLandmarks && poseLandmarks.length > 0) {
+        // Right elbow is landmark 14
+        const elbow = poseLandmarks[14];
+        ctx.fillStyle = "red";
+        ctx.beginPath();
+        ctx.arc(elbow.x*canvas.width, elbow.y*canvas.height, 8, 0, 2*Math.PI);
+        ctx.fill();
+        ctx.fillStyle = "white";
+        ctx.font = "16px Arial";
+        ctx.fillText("Elbow", elbow.x*canvas.width+10, elbow.y*canvas.height);
+      }
+
+      if (handLandmarks && handLandmarks.length > 0) {
+        const landmarks = handLandmarks[0];
+        
+        // Draw knuckles
+        [5,9,13,17].forEach(i => {
+          const lm = landmarks[i];
+          ctx.fillStyle = "blue";
+          ctx.beginPath();
+          ctx.arc(lm.x*canvas.width, lm.y*canvas.height, 5, 0, 2*Math.PI);
+          ctx.fill();
+        });
+
+        // Calculate and display wrist angle
+        if (poseLandmarks && poseLandmarks.length > 0) {
+          const elbow = poseLandmarks[14];  // Right elbow
+          const wrist = landmarks[0];
+          const indexMCP = landmarks[5];
+
+          const forearm = {x: wrist.x - elbow.x, y: wrist.y - elbow.y};
+          const handVec = {x: indexMCP.x - wrist.x, y: indexMCP.y - wrist.y};
+          const wristAngle = -angleBetween(forearm, handVec);
+
+          ctx.fillStyle = "yellow";
+          ctx.font = "bold 24px Arial";
+          ctx.strokeStyle = 'black';
+          ctx.lineWidth = 2;
+          const text = `Wrist Angle: ${Math.round(wristAngle)}°`;
+          ctx.strokeText(text, 50, 50);
+          ctx.fillText(text, 50, 50);
+
+          // Alert for wrist angle
+          const currentTime = Date.now();
+          if (wristAngle < 5) {  // If wrist angle is too low
+            // Start or continue timing
+            if (wristTooHighStart === null) {
+              wristTooHighStart = currentTime;
+            } else if (currentTime - wristTooHighStart >= ALERT_DELAY) {
+              // After 2-second delay, show warning and beep
+              ctx.fillStyle = "red";
+              const alertText = "Wrist Too Low!";
+              ctx.strokeText(alertText, 50, 80);
+              ctx.fillText(alertText, 50, 80);
+              
+              // Play beep if enough time has passed since last beep
+              if (lastBeepTime === null || currentTime - lastBeepTime >= BEEP_INTERVAL) {
+                playBeep();
+                lastBeepTime = currentTime;
+              }
+            }
+          } else {
+            // Wrist angle is OK
+            wristTooHighStart = null;
+            ctx.fillStyle = "lime";
+            const okText = "Wrist OK";
+            ctx.strokeText(okText, 50, 80);
+            ctx.fillText(okText, 50, 80);
+          }
+          }
+        }
+      }
+
+    function onResultsHands(results) {
+      handLandmarks = results.multiHandLandmarks;
+      drawLandmarks();
+    }
+
+    function onResultsPose(results) {
+      poseLandmarks = results.poseLandmarks;
+      drawLandmarks();
+    }
+
+    hands.onResults(onResultsHands);
+    pose.onResults(onResultsPose);
+
+    // Setup camera
+    navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+      video.srcObject = stream;
+      video.onloadedmetadata = () => {
+        video.play();
+        // Start detection after video is ready
+        startDetection();
+      };
+    });
+
+    async function startDetection() {
+      async function detectFrame() {
+        try {
+          if (!video.paused && !video.ended) {
+            if (hands && pose) {
+              await hands.send({image: video});
+              await pose.send({image: video});
+            }
+          }
+          requestAnimationFrame(detectFrame);
+        } catch (error) {
+          console.error('Error in detection loop:', error);
+          status.innerText = 'Detection error - please refresh the page';
+        }
+      }
+      detectFrame();
+    }
+
+    // Initialize audio and detection on first click (browser requirement)
+    canvas.addEventListener("click", () => {
+      try {
+        audioContext.resume();
+        status.innerText = "Audio enabled - monitoring wrist angle";
+      } catch (error) {
+        console.error('Error initializing audio:', error);
+        status.innerText = "Error enabling audio";
+      }
+    });
+
+  </script>
+</body>
+</html>
